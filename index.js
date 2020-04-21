@@ -199,9 +199,8 @@ function processArgs(data, exit = true) {
     return result;
 }
 
-
-
-console.log(processArgs(spec));
-
+if (require.main === module) {
+    console.log(processArgs(spec));
+}
 
 module.exports = processArgs;
