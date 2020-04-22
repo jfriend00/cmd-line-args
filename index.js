@@ -75,6 +75,8 @@ function checkFile(val, wholeArg, type = "file") {
     }
 }
 
+const possibleTypes = new Set(["str", "num", "file", "dir", "yesno", "filepath", "[dir]", "[file]", "[str]"]);
+
 function processArgs(data, exit = true) {
     let result = {unnamed: []};
     try {
@@ -97,6 +99,10 @@ function processArgs(data, exit = true) {
             origCase.set(lowerArg, arg);
             // resultKey is without leading "-"
             let resultName = arg.startsWith("-") ? arg.slice(1) : arg;
+            if (val && !possibleTypes.has(val)) {
+                throw new Error(`Unexpected type "${val}" specified in "${data[i]}"`);
+            }
+            // initialize default value
             result[resultName] = data[i + 1];
             // if no "=" part in the spec, then it's just a flag
             spec[lowerArg] = val ? val : "flag";
@@ -181,6 +187,9 @@ function processArgs(data, exit = true) {
                                 }
                                 result[resultName] = parts;
                                 break;
+                            }
+                            default: {
+                                throw new Error(`Unexpected argument type in specification: "${type}" in "${wholeArg}"`);
                             }
                         }
                     }
