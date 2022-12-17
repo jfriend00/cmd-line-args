@@ -27,8 +27,9 @@
 // result {nodisk: true, workers: 7, dirs:["aaa", "bbb"], unnamed: ["1,000,000,000"]}
 
 
+/*
 // sample spec
-let spec = [
+let specData = [
     "-nodisk", false,           // single option with default avlue
     "-workers=num", 0,          // option with numeric parameter
     "-name=str", "",            // option with string parameter
@@ -41,9 +42,10 @@ let spec = [
     "-names=[str]", [],         // option with multiple strings
     "-files=list=normal,all,hidden,system", "normal"   // one of several preset values
 ];
+*/
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 // these are the types allowed
 const types = {
@@ -85,11 +87,11 @@ function trimArg(arg) {
     return isOption(arg) ? arg.slice(1) : arg;
 }
 
-const possibleTypes = new Set(["str", "num", "file", "dir", "yesno", "filepath", "[dir]", "[file]", "[str]", "list"]);
+const possibleTypes = new Set(["str", "num", "file", "dir", "yesno", "flag", "filepath", "[dir]", "[file]", "[str]", "list"]);
 
-function processArgs(data, exit = true) {
+function processArgsArray(data, args, exit = true) {
     // this is the final result if all command line argument processing
-    let result = { unnamed: [] };
+    const result = { unnamed: [] };
 
     try {
         if (!Array.isArray(data)) {
@@ -123,157 +125,134 @@ function processArgs(data, exit = true) {
                 "files": {type: "str", allowedValues: Set(["normal", "system", "hidden", "all"])}
             }
         */
-        let spec = {};
-        let origCase = new Map();
+        const spec = {};
 
         // process the passed in cmd line argument specification
         // so we know what we're looking for in parsing the comamnd line
         function parseSpec() {
             for (let i = 0; i < data.length; i += 2) {
-                const [arg, type, list] = data[i].split("=");
-                let allowedValues;
-                if (list) {
-                    // allowed values are a comma delimited string with no spaces around the commas
-                    allowedValues = new Set(list.toLowerCase().split(","));
-                }
-                let lowerArg = arg.toLowerCase();
-                // save original case in the map so we can get it back later
-                // when all we have is the lowercase
-                // this allows us to do case insensitive matching on the arguments
-                // but have output properties be case sensitive for the programmer
-                origCase.set(lowerArg, arg);
-                // resultKey is without leading "-"
-                let resultKey = trimArg(arg);
+                const [arg, type = "flag", list] = data[i].split("=");
 
                 // check to see if the type is allowed
-                if (type && !possibleTypes.has(type)) {
+                if (!possibleTypes.has(type)) {
                     throw new Error(`Unexpected type "${type}" specified in "${data[i]}"`);
                 }
 
-                // initialize default value
-                result[resultKey] = data[i + 1];
+                // allowed values are a comma delimited string with no spaces around the commas
+                const allowedValues = list ? new Set(list.toLowerCase().split(",")) : null;
 
-                // special case for list because it has more parameters
-                if (type === "list") {
-                    spec[lowerArg] = { type, allowedValues };
-                } else if (type) {
-                    spec[lowerArg] = { type };
-                } else {
-                    // if no "=" part in the spec, then it's just a flag
-                    spec[lowerArg] = { type: "flag" };
-                }
+                const lowerArg = arg.toLowerCase();
+
+                // initialize default value
+                result[trimArg(lowerArg)] = data[i + 1];
+                spec[lowerArg] = { type, allowedValues };
             }
         }
 
         function parseArgs() {
-            if (process.argv.length > 2) {
-                let args = process.argv.slice(2);
-                for (const wholeArg of args) {
-                    /* three possibilities here for each argument:
-                    -option=value
-                    -option
-                    sometext
-                    */
+            for (const wholeArg of args) {
+                /* three possibilities here for each argument:
+                -option=value
+                -option
+                sometext
+                */
 
-                    if (!isOption(wholeArg)) {
-                        // if not an option, then treat it as an unnamed argument
-                        result.unnamed.push(wholeArg);
-                        continue;
+                if (!isOption(wholeArg)) {
+                    // if not an option, then treat it as an unnamed argument
+                    result.unnamed.push(wholeArg);
+                    continue;
+                }
+                const [argOrig, val] = wholeArg.split("=");
+                const arg = argOrig.toLowerCase();
+                const specObj = spec[arg];
+                if (!specObj) {
+                    throw new Error(`Unknown argument ${argOrig}`);
+                }
+
+                const type = specObj.type;
+                const resultName = trimArg(arg);
+
+                if (type === "flag") {
+                    result[resultName] = true;
+                    continue;
+                }
+
+                if (!val) {
+                    throw new Error(`Expecting ${argName}=value in "${wholeArg}"`);
+                }
+
+                switch (type) {
+                    case "num": {
+                        // strip commas and underscores
+                        if (/[^\d,_]/.test(val)) {
+                            throw new Error(`Expecting number ${argName}=nnn in "${wholeArg}"`);
+                        }
+                        val = val.replace(/[,_]/g, "");
+                        result[resultName] = parseInt(val, 10);
+                        break;
                     }
-                    const [argOrig, val] = wholeArg.split("=");
-                    const arg = argOrig.toLowerCase();
-                    const specObj = spec[arg];
-                    if (!specObj) {
-                        throw new Error(`Unknown argument ${argOrig}`);
+                    case "str": {
+                        result[resultName] = val;
+                        break;
                     }
-
-                    const type = specObj.type;
-                    
-                    let argName = origCase.get(arg);
-                    let resultName = trimArg(argName);
-
-                    if (type === "flag") {
-                        result[resultName] = true;
-                        continue;
+                    case "[str]": {
+                        result[resultName] = val.split(";");
+                        break;
                     }
-
-                    if (!val) {
-                        throw new Error(`Expecting ${argName}=value in "${wholeArg}"`);
+                    case "yesno": {
+                        let v = val.toLowerCase();
+                        if (v === "y" || v === "yes" || v === "1") {
+                            result[resultName] = true;
+                        } else if (v === "n" || v === "no" || v === "0") {
+                            result[resultName] = false;
+                        } else {
+                            throw new Error(`Expecting value after = of "yes", "y", "1", "no", "n" or "0" in "${wholeArg}"`);
+                        }
+                        break;
                     }
-
-                    switch (type) {
-                        case "num": {
-                            // strip commas and underscores
-                            if (/[^\d,_]/.test(val)) {
-                                throw new Error(`Expecting number ${argName}=nnn in "${wholeArg}"`);
-                            }
-                            val = val.replace(/[,_]/g, "");
-                            result[resultName] = parseInt(val, 10);
-                            break;
+                    case "dir": {
+                        checkFile(val, wholeArg, "dir");
+                        result[resultName] = path.resolve(val);
+                        break;
+                    }
+                    case "file": {
+                        checkFile(val, wholeArg, "file");
+                        result[resultName] = path.resolve(val);
+                        break;
+                    }
+                    case "[dir]": {
+                        let parts = val.split(";")
+                        for (let [index, dir] of parts.entries()) {
+                            checkFile(dir, wholeArg, "dir");    // will throw the error if not correct
+                            parts[index] = path.resolve(dir);
                         }
-                        case "str": {
-                            result[resultName] = val;
-                            break;
+                        result[resultName] = parts;
+                        break;
+                    }
+                    case "[file]": {
+                        let parts = val.split(";")
+                        for (let [index, dir] of parts.entries()) {
+                            checkFile(dir, wholeArg, "file");    // will throw the error if not correct
+                            parts[index] = path.resolve(dir);
                         }
-                        case "[str]": {
-                            result[resultName] = val.split(";");
-                            break;
+                        result[resultName] = parts;
+                        break;
+                    }
+                    case "filepath": {
+                        checkFile(val, wholeArg, "filepath");
+                        result[resultName] = path.resolve(val);
+                        break;
+                    }
+                    case "list": {
+                        // check to see if val is an allowedValue
+                        if (!specObj.allowedValues.has(val)) {
+                            throw new Error(`Unexpected value "${val}" in "${wholeArg}"`);
                         }
-                        case "yesno": {
-                            let v = val.toLowerCase();
-                            if (v === "y" || v === "yes" || v === "1") {
-                                result[resultName] = true;
-                            } else if (v === "n" || v === "no" || v === "0") {
-                                result[resultName] = false;
-                            } else {
-                                throw new Error(`Expecting value after = of "yes", "y", "1", "no", "n" or "0" in "${wholeArg}"`);
-                            }
-                            break;
-                        }
-                        case "dir": {
-                            checkFile(val, wholeArg, "dir");
-                            result[resultName] = path.resolve(val);
-                            break;
-                        }
-                        case "file": {
-                            checkFile(val, wholeArg, "file");
-                            result[resultName] = path.resolve(val);
-                            break;
-                        }
-                        case "[dir]": {
-                            let parts = val.split(";")
-                            for (let [index, dir] of parts.entries()) {
-                                checkFile(dir, wholeArg, "dir");    // will throw the error if not correct
-                                parts[index] = path.resolve(dir);
-                            }
-                            result[resultName] = parts;
-                            break;
-                        }
-                        case "[file]": {
-                            let parts = val.split(";")
-                            for (let [index, dir] of parts.entries()) {
-                                checkFile(dir, wholeArg, "file");    // will throw the error if not correct
-                                parts[index] = path.resolve(dir);
-                            }
-                            result[resultName] = parts;
-                            break;
-                        }
-                        case "filepath": {
-                            checkFile(val, wholeArg, "filepath");
-                            result[resultName] = path.resolve(val);
-                            break;
-                        }
-                        case "list": {
-                            // check to see if val is an allowedValue
-                            if (!specObj.allowedValues.has(val)) {
-                                throw new Error(`Unexpected value "${val}" in "${wholeArg}"`);
-                            }
-                            result[resultName] = val;
-                            break;
-                        }
-                        default: {
-                            throw new Error(`Unexpected argument type in specification: "${type}" in "${wholeArg}"`);
-                        }
+                        result[resultName] = val;
+                        break;
+                    }
+                    default: {
+                        throw new Error(`Unexpected argument type in specification: "${type}" in "${wholeArg}"`);
                     }
                 }
             }
@@ -295,8 +274,10 @@ function processArgs(data, exit = true) {
     return result;
 }
 
-if (require.main === module) {
-    console.log(processArgs(spec));
+// uses process.argv
+function processArgs(spec, exit = true) {
+    const args = process.argv.length > 2 ? process.argv.slice(2) : [];
+    return processArgsArray(spec, args, exit);
 }
 
-module.exports = processArgs;
+module.exports = { processArgs, processArgsArray };
