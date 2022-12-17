@@ -144,12 +144,18 @@ function processArgsArray(data, args, exit = true) {
                 const lowerArg = arg.toLowerCase();
 
                 // initialize default value
-                result[trimArg(lowerArg)] = data[i + 1];
+                result[trimArg(lowerArg)] = { value: data[i + 1], present: false };
                 spec[lowerArg] = { type, allowedValues };
             }
         }
 
         function parseArgs() {
+
+            function setValue(resultName, val) {
+                result[resultName].value = val;
+                result[resultName].present = true;
+            }
+
             for (const wholeArg of args) {
                 /* three possibilities here for each argument:
                 -option=value
@@ -173,7 +179,7 @@ function processArgsArray(data, args, exit = true) {
                 const resultName = trimArg(arg);
 
                 if (type === "flag") {
-                    result[resultName] = true;
+                    setValue(resultName, true);
                     continue;
                 }
 
@@ -188,23 +194,23 @@ function processArgsArray(data, args, exit = true) {
                             throw new Error(`Expecting number ${argName}=nnn in "${wholeArg}"`);
                         }
                         val = val.replace(/[,_]/g, "");
-                        result[resultName] = parseInt(val, 10);
+                        setValue(resultName, parseInt(val, 10));
                         break;
                     }
                     case "str": {
-                        result[resultName] = val;
+                        setValue(resultName, val);
                         break;
                     }
                     case "[str]": {
-                        result[resultName] = val.split(";");
+                        setValue(resultName, val.split(";"));
                         break;
                     }
                     case "yesno": {
                         let v = val.toLowerCase();
                         if (v === "y" || v === "yes" || v === "1") {
-                            result[resultName] = true;
+                            setValue(resultName, true);
                         } else if (v === "n" || v === "no" || v === "0") {
-                            result[resultName] = false;
+                            setValue(resultName, false);
                         } else {
                             throw new Error(`Expecting value after = of "yes", "y", "1", "no", "n" or "0" in "${wholeArg}"`);
                         }
@@ -212,12 +218,12 @@ function processArgsArray(data, args, exit = true) {
                     }
                     case "dir": {
                         checkFile(val, wholeArg, "dir");
-                        result[resultName] = path.resolve(val);
+                        setValue(resultName, path.resolve(val));
                         break;
                     }
                     case "file": {
                         checkFile(val, wholeArg, "file");
-                        result[resultName] = path.resolve(val);
+                        setValue(resultName, path.resolve(val));
                         break;
                     }
                     case "[dir]": {
@@ -226,7 +232,7 @@ function processArgsArray(data, args, exit = true) {
                             checkFile(dir, wholeArg, "dir");    // will throw the error if not correct
                             parts[index] = path.resolve(dir);
                         }
-                        result[resultName] = parts;
+                        setValue(resultName, parts);
                         break;
                     }
                     case "[file]": {
@@ -235,12 +241,12 @@ function processArgsArray(data, args, exit = true) {
                             checkFile(dir, wholeArg, "file");    // will throw the error if not correct
                             parts[index] = path.resolve(dir);
                         }
-                        result[resultName] = parts;
+                        setValue(resultName, parts);
                         break;
                     }
                     case "filepath": {
                         checkFile(val, wholeArg, "filepath");
-                        result[resultName] = path.resolve(val);
+                        setValue(resultName, path.resolve(val));
                         break;
                     }
                     case "list": {
@@ -248,7 +254,7 @@ function processArgsArray(data, args, exit = true) {
                         if (!specObj.allowedValues.has(val)) {
                             throw new Error(`Unexpected value "${val}" in "${wholeArg}"`);
                         }
-                        result[resultName] = val;
+                        setValue(resultName, val);
                         break;
                     }
                     default: {
