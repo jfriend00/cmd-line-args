@@ -168,7 +168,7 @@ function processArgsArray(data, args, exit = true) {
                     result.unnamed.push(wholeArg);
                     continue;
                 }
-                const [argOrig, val] = wholeArg.split("=");
+                let [argOrig, val] = wholeArg.split("=");
                 const arg = argOrig.toLowerCase();
                 const specObj = spec[arg];
                 if (!specObj) {
@@ -184,7 +184,7 @@ function processArgsArray(data, args, exit = true) {
                 }
 
                 if (!val) {
-                    throw new Error(`Expecting ${argName}=value in "${wholeArg}"`);
+                    throw new Error(`Expecting -${resultName}=value in "${wholeArg}"`);
                 }
 
                 switch (type) {
@@ -270,8 +270,8 @@ function processArgsArray(data, args, exit = true) {
 
     } catch (e) {
         if (exit) {
-            //console.log(e);
-            console.log(e.message);
+            console.log(e);
+            //console.log(e.message);
             process.exit(1);
         } else {
             throw e;
