@@ -1,21 +1,3 @@
-// -noDisk          don't write to disk
-// -noCleanup       erase bucket files when done
-// -analyzeOnly     analyze files in bucket directory only
-// -skipAnalyze     skip the analysis, just generate the bucket files
-// -workers=nnn     use this many workers for key generation
-// -numToBatch=nnn  how many in a batch to send back from worker to main thread
-// -dirs="path1;path2;path3"
-
-
-// pass in
-// -xxxxx
-// whether it's an =yyyy
-// when the = should be split
-// plain options with no - and which are numbers of paths
-// type checking
-//
-// ["-nodisk", false, "-workers=num", 0, "-dirs=[dir]", null]
-
 // types are
 // num
 // str
@@ -24,14 +6,12 @@
 // file     (will be checked for existence)
 // filepath (extract filename and path will be checked for existence)
 //
-// result {nodisk: true, workers: 7, dirs:["aaa", "bbb"], unnamed: ["1,000,000,000"]}
-
 
 /*
 // sample spec
 let specData = [
-    "-nodisk", false,           // single option with default avlue
-    "-workers=num", 0,          // option with numeric parameter
+    "-nodisk|-nd", false,           // single option with default avlue
+    "-workers|-w=num", 0,          // option with numeric parameter
     "-name=str", "",            // option with string parameter
     "-file=file", "",           // option with filename parameter where filename must exist
     "-dir=dir", "",             // option with directory parameter where directory must exist
@@ -47,7 +27,7 @@ let specData = [
 const fs = require('node:fs');
 const path = require('node:path');
 
-// these are the types allowed
+// these are the types allowed when using checkFile()
 const types = {
     file: ["file", "isFile"],                   // make sure the file exists
     dir: ["directory", "isDirectory"],          // make sure the directory exists
@@ -87,7 +67,10 @@ function trimArg(arg) {
     return isOption(arg) ? arg.slice(1) : arg;
 }
 
-const possibleTypes = new Set(["str", "num", "file", "dir", "yesno", "flag", "filepath", "[dir]", "[file]", "[str]", "list"]);
+const possibleTypes = new Set([
+    "str", "num", "file", "dir", "yesno", "flag",
+    "filepath", "[dir]", "[file]", "[str]", "list"
+]);
 
 function processArgsArray(data, args, exit = true) {
     // this is the final result if all command line argument processing
@@ -132,6 +115,8 @@ function processArgsArray(data, args, exit = true) {
         function parseSpec() {
             for (let i = 0; i < data.length; i += 2) {
                 const [arg, type = "flag", list] = data[i].split("=");
+                // if arg has a | in it, then support a second synonym (used for shortcuts)
+                const [arg1, arg2] = arg.split("|");
 
                 // check to see if the type is allowed
                 if (!possibleTypes.has(type)) {
@@ -141,11 +126,27 @@ function processArgsArray(data, args, exit = true) {
                 // allowed values are a comma delimited string with no spaces around the commas
                 const allowedValues = list ? new Set(list.toLowerCase().split(",")) : null;
 
-                const lowerArg = arg.toLowerCase();
+                const lowerArg = arg1.toLowerCase();
 
                 // initialize default value
-                result[trimArg(lowerArg)] = { value: data[i + 1], present: false };
-                spec[lowerArg] = { type, allowedValues };
+                const resultObj = { value: data[i + 1], present: false };
+                result[trimArg(lowerArg)] = resultObj;
+                result[trimArg(arg1)] = resultObj;
+
+                // insert key into spec
+                const specObj = { type, allowedValues };
+                spec[lowerArg] = specObj;
+
+                // if there was a synonym, then set it for the exact same obj in both result and spec
+                // so both the full key and the synonym point to the same objects
+                // The client of this function can use either value in the result as they point to 
+                // the same physical object
+                if (arg2) {
+                    const lowerArg2 = arg2.toLowerCase();
+                    result[trimArg(lowerArg2)] = resultObj;
+                    spec[lowerArg2] = specObj;
+
+                }
             }
         }
 
